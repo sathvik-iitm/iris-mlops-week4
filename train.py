@@ -50,9 +50,12 @@ def main():
     X, y = prepare_features(data)
     
     print("Splitting data...")
+    # Remove stratify for small dataset to avoid errors
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y
+        X, y, test_size=0.3, random_state=42
     )
+    
+    print(f"Training samples: {len(X_train)}, Test samples: {len(X_test)}")
     
     print("Training model...")
     model = train_model(X_train, y_train)
