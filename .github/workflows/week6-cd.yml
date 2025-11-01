@@ -1,0 +1,60 @@
+name: Week 6 - CD Pipeline (Docker Build)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'app.py'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'models/**'
+
+env:
+  PROJECT_ID: dulcet-bastion-452612-v4
+  REGION: us-central1
+  REPOSITORY: iris-classifier-repo
+  IMAGE: iris-classifier
+
+jobs:
+  docker-build:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Build Docker image
+      run: |
+        echo "🐳 Building Docker image..."
+        docker build -t ${{ env.IMAGE }}:${{ github.sha }} .
+        docker build -t ${{ env.IMAGE }}:latest .
+    
+    - name: Test Docker image
+      run: |
+        echo "🧪 Testing Docker image..."
+        docker run -d --name test-container -p 8000:8000 ${{ env.IMAGE }}:latest
+        sleep 10
+        curl -f http://localhost:8000/health || exit 1
+        docker stop test-container
+        docker rm test-container
+        echo "✅ Docker tests passed!"
+    
+    - name: Login to Google Artifact Registry
+      if: success()
+      run: |
+        echo "🔐 Logging in to Artifact Registry..."
+        # This would require GCP credentials
+        # gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+    
+    - name: Push to Artifact Registry
+      if: success()
+      run: |
+        echo "📦 Would push image to:"
+        echo "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:latest"
+        echo "⚠️ Skipping push - requires GCP service account credentials"
+        
+    - name: Deployment Summary
+      run: |
+        echo "✅ Docker build completed"
+        echo "📊 Image: ${{ env.IMAGE }}:${{ github.sha }}"
