@@ -19,6 +19,9 @@ spec:
         image: us-central1-docker.pkg.dev/dulcet-bastion-452612-v4/iris-classifier-repo/iris-classifier:latest
         ports:
         - containerPort: 8000
+        env:
+        - name: MODEL_PATH
+          value: "models/iris_model.joblib"
         resources:
           requests:
             memory: "128Mi"
