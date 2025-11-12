@@ -1,77 +1,142 @@
 #!/usr/bin/env python3
 """
-Week 7: Automated Bottleneck Demonstration
-Tests system behavior under different load conditions
+Week 7: Bottleneck Demonstration
+Shows auto-scaling and bottleneck when restricted to 1 pod
 """
 
 import subprocess
 import time
+import sys
 
-def run_load_test(url, num_requests, workers, description):
-    """Run a load test and capture results"""
+def print_section(title):
+    """Print formatted section header"""
     print(f"\n{'='*70}")
-    print(f"🔥 TEST: {description}")
-    print(f"{'='*70}")
-    print(f"Requests: {num_requests}")
-    print(f"Workers: {workers}")
-    print(f"Target: {url}")
-    print()
-    
-    # Run the load test
+    print(f"  {title}")
+    print(f"{'='*70}\n")
+
+def run_kubectl_command(command, description):
+    """Run kubectl command and show results"""
+    print(f"🔍 {description}")
+    print(f"Command: kubectl {command}")
     result = subprocess.run(
-        ['python', 'load_test.py', url, str(num_requests), str(workers)],
+        f"kubectl {command}",
+        shell=True,
         capture_output=True,
         text=True
     )
-    
     print(result.stdout)
     if result.stderr:
-        print("Errors:", result.stderr)
-    
-    return result
+        print(f"Note: {result.stderr}")
+    print()
 
 def main():
-    # Configuration
-    SERVICE_URL = "https://httpbin.org/delay/0"  # Fast endpoint for testing
+    if len(sys.argv) < 2:
+        print("Usage: python bottleneck_demo.py <SERVICE-IP>")
+        print("Example: python bottleneck_demo.py http://34.123.45.67")
+        sys.exit(1)
     
-    print("=" * 70)
-    print("🚀 WEEK 7: BOTTLENECK ANALYSIS DEMONSTRATION")
-    print("=" * 70)
+    service_url = sys.argv[1].rstrip('/')
+    
+    print_section("WEEK 7: AUTO-SCALING & BOTTLENECK DEMONSTRATION")
+    
+    print("📋 Test Plan:")
+    print("   Scenario 1: Normal load (100 requests)")
+    print("   Scenario 2: High load with auto-scaling (1000 requests)")
+    print("   Scenario 3: Bottleneck - 1 pod restricted (1000 requests)")
+    print("   Scenario 4: Bottleneck - extreme load (2000 requests)")
     print()
-    print("This script demonstrates system behavior under different loads:")
-    print("1. Normal load (100 requests)")
-    print("2. High load (1000 requests) - triggers auto-scaling")
-    print("3. Extreme load (2000 requests) - exposes bottleneck")
-    print()
     
-    # Test 1: Normal load
-    print("\n⏳ Starting Test 1 in 3 seconds...")
-    time.sleep(3)
-    run_load_test(SERVICE_URL, 100, 5, "NORMAL LOAD - No Scaling Expected")
+    # Initial state
+    print_section("INITIAL STATE - Check HPA and Pods")
+    run_kubectl_command("get hpa iris-classifier-hpa", "HPA Status")
+    run_kubectl_command("get pods -l app=iris-classifier", "Current Pods")
     
-    # Test 2: High load (auto-scaling)
-    print("\n⏳ Starting Test 2 in 5 seconds...")
+    # Scenario 1: Normal Load
+    input("Press ENTER to start Scenario 1 (Normal Load - 100 requests)...")
+    print_section("SCENARIO 1: NORMAL LOAD (100 requests)")
+    print("Expected: 1 pod, CPU <50%, no scaling\n")
+    
+    subprocess.run([
+        'python', 'load_test.py', service_url, '100', '5'
+    ])
+    
     time.sleep(5)
-    run_load_test(SERVICE_URL, 1000, 10, "HIGH LOAD - Auto-Scaling to 2-3 Pods")
+    run_kubectl_command("get hpa iris-classifier-hpa", "HPA After Normal Load")
+    run_kubectl_command("get pods -l app=iris-classifier", "Pods After Normal Load")
     
-    # Test 3: Extreme load (bottleneck)
-    print("\n⏳ Starting Test 3 in 5 seconds...")
+    # Scenario 2: High Load with Auto-scaling
+    input("\nPress ENTER to start Scenario 2 (High Load - 1000 requests, auto-scaling enabled)...")
+    print_section("SCENARIO 2: HIGH LOAD WITH AUTO-SCALING (1000 requests)")
+    print("Expected: Scales from 1 → 2 → 3 pods\n")
+    
+    subprocess.run([
+        'python', 'load_test.py', service_url, '1000', '10'
+    ])
+    
+    print("\n⏳ Waiting 10 seconds for scaling to occur...")
+    time.sleep(10)
+    
+    run_kubectl_command("get hpa iris-classifier-hpa", "HPA After High Load")
+    run_kubectl_command("get pods -l app=iris-classifier", "Pods After Scaling")
+    run_kubectl_command("top pods -l app=iris-classifier", "Pod CPU/Memory Usage")
+    
+    # Scenario 3: Bottleneck - Restrict to 1 pod
+    input("\nPress ENTER to start Scenario 3 (Bottleneck - restrict to 1 pod)...")
+    print_section("SCENARIO 3: BOTTLENECK - RESTRICTED TO 1 POD")
+    print("Action: Setting HPA maxReplicas to 1 (bottleneck simulation)\n")
+    
+    # Scale down first
+    run_kubectl_command("scale deployment iris-classifier --replicas=1", "Scale to 1 pod")
+    
+    # Update HPA to max 1 pod
+    print("📝 Temporarily updating HPA to maxReplicas: 1")
+    subprocess.run([
+        'kubectl', 'patch', 'hpa', 'iris-classifier-hpa',
+        '--type=json',
+        '-p=[{"op": "replace", "path": "/spec/maxReplicas", "value": 1}]'
+    ])
+    
     time.sleep(5)
-    run_load_test(SERVICE_URL, 2000, 20, "EXTREME LOAD - Bottleneck at max_pods=3")
+    run_kubectl_command("get hpa iris-classifier-hpa", "HPA (maxReplicas=1)")
     
-    print("\n" + "=" * 70)
-    print("✅ BOTTLENECK ANALYSIS COMPLETE")
-    print("=" * 70)
-    print()
-    print("📊 Summary:")
-    print("   Test 1 (100 req):   Fast, 100% success, <100ms response")
-    print("   Test 2 (1000 req):  Moderate, >95% success, ~250ms response")
-    print("   Test 3 (2000 req):  Slow, ~85% success, >500ms response")
-    print()
-    print("🔍 Key Insight: Performance degrades when demand exceeds")
-    print("   the maximum pod capacity (max_pods=3)")
-    print()
-    print("📁 All test results saved. Ready for documentation!")
+    print("\n🔥 Running 1000 requests with only 1 pod allowed...")
+    subprocess.run([
+        'python', 'load_test.py', service_url, '1000', '10'
+    ])
+    
+    time.sleep(5)
+    run_kubectl_command("get hpa iris-classifier-hpa", "HPA Status (Bottlenecked)")
+    run_kubectl_command("top pods -l app=iris-classifier", "Pod CPU (Should be very high)")
+    
+    # Scenario 4: Extreme bottleneck
+    input("\nPress ENTER to start Scenario 4 (Extreme Bottleneck - 2000 requests, 1 pod)...")
+    print_section("SCENARIO 4: EXTREME BOTTLENECK (2000 requests, 1 pod)")
+    print("Expected: High failures, timeouts, degraded performance\n")
+    
+    subprocess.run([
+        'python', 'load_test.py', service_url, '2000', '20'
+    ])
+    
+    time.sleep(5)
+    run_kubectl_command("get hpa iris-classifier-hpa", "HPA Final State")
+    run_kubectl_command("top pods -l app=iris-classifier", "Final Pod Usage")
+    
+    # Restore HPA
+    print("\n🔄 Restoring HPA to maxReplicas: 3")
+    subprocess.run([
+        'kubectl', 'patch', 'hpa', 'iris-classifier-hpa',
+        '--type=json',
+        '-p=[{"op": "replace", "path": "/spec/maxReplicas", "value": 3}]'
+    ])
+    
+    print_section("DEMONSTRATION COMPLETE")
+    print("✅ All scenarios executed!")
+    print("\n📊 Key Observations:")
+    print("   • Scenario 1: Single pod handles light load easily")
+    print("   • Scenario 2: Auto-scaling works (1→3 pods)")
+    print("   • Scenario 3: Bottleneck with 1 pod restriction")
+    print("   • Scenario 4: Severe degradation at 2000 requests")
+    print("\n📝 Results ready for documentation!")
 
 if __name__ == "__main__":
     main()
